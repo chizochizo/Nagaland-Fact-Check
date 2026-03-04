@@ -1,0 +1,12 @@
+# Ignore the virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Ignore the heavy data and indices
+data/
+index/
+check_models.py
+
+# Ignore local environment variables if you use them later
+.env
