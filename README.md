@@ -27,3 +27,10 @@ An AI-powered fact-verification system designed specifically for the regional co
 │   └── logic.py          # Gemini 2.5 reasoning & citation extraction
 ├── data/                 # Raw Nagaland datasets (CSVs/TXTs)
 └── index/                # Pre-computed BM25 & Dense indices
+
+
+🛡️ Disclaimer
+
+This project is an Academic Milestone for the Final Year Project at Nagaland University. The system is designed to demonstrate the efficacy of Hybrid RAG (Retrieval-Augmented Generation) in regional fact-checking and should be used with verified datasets for critical applications.
+
+Developed by: [Vechikho Chizo]Department: Computer Science & Engineering, Nagaland University.
