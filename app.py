@@ -2,116 +2,65 @@ import streamlit as st
 from core.pipeline import answer_query
 
 # --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="Nagaland Fact-Check",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Nagaland Fact-Check System",
+                   page_icon="⚖️", layout="wide")
 
-# Custom CSS for a professional "Academic Project" look
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; background-color: #0d6efd; color: white; font-weight: bold; border: none; }
-    .stButton>button:hover { background-color: #0b5ed7; border: none; }
-    .evidence-box { background-color: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #dee2e6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; }
-    .source-badge { padding: 8px 12px; border-radius: 20px; font-weight: bold; font-size: 0.85em; display: inline-block; margin-bottom: 10px; }
-    .local-badge { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
-    .live-badge { background-color: #fff3cd; color: #664d03; border: 1px solid #ffecb5; }
-    .verdict-header { font-size: 1.8em; font-weight: 800; margin-bottom: 10px; }
+    .evidence-box {
+        background-color: #f8f9fa; /* 👈 Professional Light Ivory/Grey */
+        padding: 30px;
+        border-radius: 15px;
+        border-left: 12px solid #2c3e50; /* Darker accent for contrast */
+        color: #212529 !important;
+        font-size: 1.15rem;
+        line-height: 1.7;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); /* Subtle shadow for depth */
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# --- HEADER ---
-st.title("🛡️ Nagaland Fake News Detection System")
-st.markdown("#### *Hybrid Retrieval-Augmented Generation (RAG) Architecture*")
-st.markdown("---")
+st.title("⚖️ Regional Fact-Checking System")
+st.markdown("##### Hybrid RAG Knowledge Verification for Nagaland")
 
-# --- SIDEBAR: SYSTEM SETTINGS ---
-with st.sidebar:
-    st.header("🔑 API Authentication")
-    api_key = st.text_input("Enter Gemini API Key", type="password",
-                            help="Enter your Google AI Studio API key to enable the Reasoning Engine.")
+claim = st.text_input("Enter a claim to verify:",
+                      placeholder="e.g., Mount Saramati is the highest peak in Nagaland.")
 
-    st.markdown("---")
-    st.header("⚙️ System Status")
-    st.success("✅ BM25 Sparse Index: Active")
-    st.success("✅ FAISS Dense Index: Active")
-    st.info("🧠 **Model:** Gemini 2.5 Flash")
-
-    st.markdown("---")
-    st.write("**Project Info**")
-    st.caption("Final Year Academic Project")
-    st.caption("Nagaland University | CS & Engineering")
-
-# --- MAIN INTERFACE ---
-claim = st.text_input("Enter a claim to verify about Nagaland:",
-                      placeholder="e.g., The Hornbill Festival is held in Kohima.",
-                      help="Type a factual statement you want to verify.")
-
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    verify_clicked = st.button("Verify Claim")
-
-if verify_clicked:
-    if not api_key:
-        st.error(
-            "❌ **Authentication Error:** Please provide your Gemini API Key in the sidebar to proceed.")
-    elif not claim:
-        st.warning("⚠️ **Input Required:** Please enter a claim to verify.")
-    else:
-        with st.spinner("🔄 Initializing Hybrid Retrieval and AI Reasoning..."):
-            # Execute the RAG Pipeline
-            result = answer_query(claim, api_key=api_key)
+if st.button("Verify Claim"):
+    if claim:
+        with st.spinner("🔍 Deep-scanning regional records..."):
+            result = answer_query(claim)
 
         if result["status"] == "success":
-            # ⚖️ VERDICT SECTION
-            st.subheader("⚖️ Verification Verdict")
             v_data = result["verdict"]
-            verdict_val = v_data.get("verdict", "UNKNOWN")
+            conf_score = v_data.get("confidence", 0)
 
-            if verdict_val == "SUPPORTED":
-                st.markdown(
-                    f'<div class="verdict-header" style="color: #198754;">✅ {verdict_val}</div>', unsafe_allow_html=True)
-                st.balloons()
-            elif verdict_val == "REFUTED":
-                st.markdown(
-                    f'<div class="verdict-header" style="color: #dc3545;">❌ {verdict_val}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(
-                    f'<div class="verdict-header" style="color: #ffc107;">⚠️ {verdict_val}</div>', unsafe_allow_html=True)
-
-            st.info(
-                f"**Reasoning:** {v_data.get('explanation', 'No explanation provided.')}")
-
-            # 📂 EVIDENCE SECTION
             st.markdown("---")
-            st.subheader("📂 Supporting Evidence Content")
+            v_col, c_col = st.columns([2, 1])
+            with v_col:
+                st.subheader("⚖️ Verification Verdict")
+                if v_data["verdict"] == "SUPPORTED":
+                    st.success(f"### {v_data['verdict']}")
+                elif v_data["verdict"] in ["REFUTED", "DISPUTED"]:
+                    st.error(f"### {v_data['verdict']}")
+                else:
+                    st.warning(f"### {v_data['verdict']}")
 
-            # Show the source of the information
-            if result["source"] == "local_hybrid":
+            with c_col:
+                st.metric("System Confidence", f"{conf_score}%")
+                st.progress(min(conf_score / 100.0, 1.0))
+
+            st.info(f"**Reasoning:** {v_data.get('reasoning', 'N/A')}")
+
+            if v_data.get("evidence_summary"):
+                st.subheader("📂 Supporting Evidence")
                 st.markdown(
-                    '<span class="source-badge local-badge">📊 DATA SOURCE: LOCAL KNOWLEDGE BASE</span>', unsafe_allow_html=True)
-                st.caption(
-                    "Verified using pre-indexed local datasets (BM25 + Dense Semantic Search).")
-            elif result["source"] == "live_wikipedia":
-                st.markdown(
-                    '<span class="source-badge live-badge">🌐 DATA SOURCE: LIVE WIKIPEDIA</span>', unsafe_allow_html=True)
-                st.caption(
-                    "Local data was insufficient; system performed a real-time Wikipedia crawl.")
+                    f'<div class="evidence-box">{v_data["evidence_summary"]}</div>', unsafe_allow_html=True)
 
-            # Display the content snippets
-            for i, (text, score) in enumerate(result["evidence"]):
-                with st.expander(f"📄 View Evidence Snippet {i+1} (Relevance Score: {score:.4f})", expanded=True):
-                    st.write(f"\"{text}\"")
-
-        elif result["status"] == "not_found":
-            st.error("🕵️ **No Evidence Found:** The system could not find any relevant information in local or live sources to verify this claim.")
-        else:
-            st.error(
-                "🚨 **System Error:** Something went wrong during the verification process.")
-
-# --- FOOTER ---
-st.markdown("---")
-st.caption("© 2026 Nagaland University | Developed for Academic Submission")
+            st.markdown("<br>", unsafe_allow_html=True)
+            source_label = result.get(
+                "source", "Unknown").replace('_', ' ').title()
+            st.caption(
+                f"📊 **Data Source:** {source_label} | Nagaland University Research")
+    else:
+        st.warning("Please enter a claim first.")

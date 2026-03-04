@@ -1,46 +1,53 @@
-from google import genai  # 👈 Using the new 2026 library
+from google import genai
 import json
 
 
 class FactChecker:
     def __init__(self):
-        print("🧠 Logic Engine Initialized with Gemini 2.5 (Stable).")
+        print("🧠 Logic Engine Initialized: Detailed Evidence Mode.")
 
     def generate_verdict(self, claim, evidence_list, api_key=None):
         if not api_key:
-            return {"verdict": "ERROR", "explanation": "API Key missing."}
+            return {"verdict": "ERROR", "reasoning": "API Key missing.", "confidence": 0}
 
         try:
-            # 1. Initialize the new Client
             client = genai.Client(api_key=api_key)
+            raw_context = " ".join([item[1] if isinstance(
+                item[0], (int, float)) else item[0] for item in evidence_list])
 
-            # 2. Build Context
-            context = "\n\n".join(
-                [f"Source {i+1}: {text}" for i, (text, score) in enumerate(evidence_list)])
-
-            # 3. Create the prompt
             prompt = f"""
-            Compare the CLAIM to the provided EVIDENCE.
-            CLAIM: {claim}
-            EVIDENCE: {context}
+            ACT AS A SENIOR ACADEMIC RESEARCHER.
             
-            Return ONLY a JSON object:
+            CLAIM: {claim}
+            CONTEXT: {raw_context}
+
+            INSTRUCTIONS:
+            1. VERDICT: Choose SUPPORTED, REFUTED, or DISPUTED.
+            2. REASONING: One clear sentence starting with 'Sources explicitly state that...'.
+            3. EVIDENCE SUMMARY: Provide a detailed, cohesive paragraph of 7-9 sentences. 
+               Include specific dates, locations, and names mentioned in the context.
+            4. CONFIDENCE: A whole number (0-100).
+
+            RETURN ONLY JSON:
             {{
-                "verdict": "SUPPORTED or REFUTED or NOT ENOUGH EVIDENCE",
-                "explanation": "One-sentence reason."
+                "verdict": "string",
+                "confidence": number,
+                "reasoning": "string",
+                "evidence_summary": "string"
             }}
             """
 
-            # 4. Request using the stable 2.5 model from your list
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt
-            )
-
-            # Clean up JSON formatting
+                model='gemini-2.5-flash', contents=prompt)
             cleaned_text = response.text.replace(
                 '```json', '').replace('```', '').strip()
-            return json.loads(cleaned_text)
+            data = json.loads(cleaned_text)
 
+            return {
+                "verdict": str(data.get("verdict", "NOT ENOUGH EVIDENCE")),
+                "confidence": int(data.get("confidence", 0)),
+                "reasoning": str(data.get("reasoning", "Sources explicitly state that the evidence is inconclusive.")),
+                "evidence_summary": str(data.get("evidence_summary", "No summary available."))
+            }
         except Exception as e:
-            return {"verdict": "CONNECTION_ERROR", "explanation": str(e)}
+            return {"verdict": "ERROR", "reasoning": str(e), "confidence": 0}
