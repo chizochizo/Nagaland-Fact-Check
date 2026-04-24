@@ -1,58 +1,89 @@
-from google import genai
+import os
 import json
+import re
+import datetime
+from google import genai
+from google.genai import types
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class FactChecker:
     def __init__(self):
-        print("🧠 Logic Engine Initialized: Universal High-Precision Mode.")
+        print("🧠 Logic Engine Initialized: Nagaland University Temporal Suite (2026).")
 
     def generate_verdict(self, claim, evidence_list, api_key=None):
-        if not api_key:
-            return {"verdict": "ERROR", "reasoning": "API Key missing.", "confidence": 0}
+        API_KEY = api_key or os.getenv(
+            "GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not API_KEY:
+            return {"verdict": "ERROR", "reasoning": "Missing API Key", "confidence": 0}
+
+        # 1. GET DYNAMIC DATE
+        current_date = datetime.date.today().strftime("%B %d, %Y")
 
         try:
-            client = genai.Client(api_key=api_key)
-            # Merges all retrieved data into one knowledge block
-            raw_context = " ".join([item[1] if isinstance(
-                item[0], (int, float)) else item[0] for item in evidence_list])
+            client = genai.Client(api_key=API_KEY)
+
+            # --- CONTEXT CLEANER ---
+            context_parts = []
+            for item in evidence_list:
+                if isinstance(item, tuple):
+                    context_parts.append(f"[Score: {item[0]}] {str(item[1])}")
+                else:
+                    context_parts.append(str(item))
+
+            raw_context = "\n\n".join(
+                context_parts) if context_parts else "NO EVIDENCE FOUND."
 
             prompt = f"""
-            ACT AS A SENIOR ACADEMIC RESEARCHER AND FACT-CHECKER.
-            
+            ACT AS A SENIOR ACADEMIC RESEARCHER AT NAGALAND UNIVERSITY.
+            TODAY'S DATE: {current_date}
+
             CLAIM: {claim}
             CONTEXT: {raw_context}
 
-            INSTRUCTIONS:
-            1. VERDICT: Choose SUPPORTED, REFUTED, or DISPUTED.
-            2. REASONING: One sentence starting with 'Sources explicitly state that...'.
-            3. EVIDENCE SUMMARY: Write a cohesive 7-9 sentence paragraph summarizing the core facts. 
-               FOCUS on official data and ignore temporary event-specific numbers unless directly asked.
-            4. CONFIDENCE: A whole number (0-100). Prioritize administrative/official records over specific event details.
-            5. CONFIDENCE REASONING: One SHORT sentence (max 15 words) explaining why this score was given.
+            STRICT LOGIC RULES:
+            1. TEMPORAL PRIORITIZATION: If the claim is about 'current status' or '2026', you MUST prioritize context tagged with 'NEWS' or 'VIDEO' from 2025/2026.
+            2. CONFLICT RESOLUTION: If a 2018 PDF contradicts a 2026 News link, the 2026 News link is the TRUTH.
+            3. HALLUCINATION GUARD: If CONTEXT is 'NO EVIDENCE FOUND', you MUST return 'NOT ENOUGH INFO' and 0% confidence.
+            4. REASONING: Explain 'Why' based on the dates. (e.g., "While 2018 records show X, 2026 news confirms Y").
+            5. EVIDENCE_SUMMARY: 7-8 lines citing specific URLs and dates found in the context.
 
-            RETURN ONLY JSON:
+            OUTPUT ONLY VALID JSON:
             {{
-                "verdict": "string",
-                "confidence": number,
+                "verdict": "SUPPORTED | REFUTED | NOT ENOUGH INFO",
+                "confidence": 0-100,
                 "reasoning": "string",
-                "evidence_summary": "string",
-                "confidence_reasoning": "string"
+                "evidence_summary": "string"
             }}
             """
 
             response = client.models.generate_content(
-                model='gemini-2.5-flash', contents=prompt)
-            cleaned_text = response.text.replace(
-                '```json', '').replace('```', '').strip()
-            data = json.loads(cleaned_text)
+                model='gemini-2.0-flash',  # Use the latest available model
+                contents=prompt
+            )
 
-            # Safety Guard: Ensures keys exist and types are correct
-            return {
-                "verdict": str(data.get("verdict", "NOT ENOUGH EVIDENCE")),
-                "confidence": int(data.get("confidence", 0)),
-                "reasoning": str(data.get("reasoning", "Sources explicitly state that the evidence is inconclusive.")),
-                "evidence_summary": str(data.get("evidence_summary", "No detailed summary available.")),
-                "confidence_reasoning": str(data.get("confidence_reasoning", "Score determined by contextual source relevance."))
-            }
+            # Extract JSON
+            json_match = re.search(r'(\{.*\})', response.text, re.DOTALL)
+            data = json.loads(json_match.group(1).strip())
+
+            # --- FINAL REFINEMENT & COLOR LOGIC ---
+            v = str(data.get("verdict", "")).upper()
+            if "SUPPORT" in v:
+                data["verdict"] = "SUPPORTED"
+            elif "REFUTE" in v or "FALSE" in v:
+                data["verdict"] = "REFUTED"
+            else:
+                data["verdict"] = "NOT ENOUGH INFO"
+                data["confidence"] = data.get("confidence", 0)
+
+            return data
+
         except Exception as e:
-            return {"verdict": "ERROR", "reasoning": str(e), "confidence": 0}
+            return {
+                "verdict": "ERROR",
+                "reasoning": f"Logic Failure: {str(e)}",
+                "evidence_summary": "Technical error in processing logic.",
+                "confidence": 0
+            }

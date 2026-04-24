@@ -1,86 +1,58 @@
 import os
-from dotenv import load_dotenv
-from retrieval.hybrid_retrieval import search_hybrid
-from utils.live_fallback import nagaland_live_search
-from utils.text_processor import clean_and_tokenize
+from retrieval.bm25_index import search_bm25
 from reasoning.logic import FactChecker
+from core.live_search import search_google_news, search_youtube_videos
 
-# 1. Load the secret key from your .env file
-load_dotenv()
-API_KEY = os.getenv("GEMINI_API_KEY")
-
-# 2. Initialize the Reasoning Engine
+# Initialize the Brain
 checker = FactChecker()
 
-# Nagaland keyword guard for live fallback filtering
-NAGALAND_KEYWORDS = [
-    "nagaland", "kohima", "dimapur", "mokokchung", "mon",
-    "tuensang", "zunheboto", "phek", "wokha", "noklak",
-    "niuland", "peren", "kiphire", "longleng", "naga"
-]
 
-
-def is_nagaland_related(query):
-    """Checks if the query contains Nagaland-specific keywords."""
-    query_lower = query.lower()
-    return any(keyword in query_lower for keyword in NAGALAND_KEYWORDS)
-
-
-def answer_query(query):
+def answer_query(query, context_link=None, uploaded_text=None):
     """
-    Main Pipeline Flow:
-    Clean Query -> Hybrid Retrieval -> Live Fallback -> AI Fact Verdict
+    The central bridge that gathers evidence from 3 sources:
+    1. Local PDF Database (BM25)
+    2. Live Google News
+    3. YouTube Video Metadata
     """
+    evidence_list = []
 
-    # 1️⃣ Preprocess and Clean
-    query_tokens = clean_and_tokenize(query)
-    clean_query_str = " ".join(query_tokens)
+    # --- 1. LOCAL RETRIEVAL (BM25) ---
+    local_results = search_bm25(query)
+    if local_results:
+        if isinstance(local_results, list):
+            for item in local_results:
+                if isinstance(item, tuple) and len(item) > 1:
+                    evidence_list.append((0.8, f"LOCAL_PDF: {str(item[1])}"))
+        elif isinstance(local_results, str):
+            evidence_list.append((0.8, f"LOCAL_PDF: {local_results}"))
 
-    if not query_tokens:
+    # --- 2. LIVE GOOGLE NEWS SEARCH ---
+    news_hits = search_google_news(query)
+    for news in news_hits:
+        # We give live news a high score (0.9) for current events
+        evidence_list.append(
+            (0.9, f"NEWS [{news['source']}]: {news['title']} - {news['snippet']} URL: {news['link']}"))
+
+    # --- 3. YOUTUBE VIDEO METADATA ---
+    video_hits = search_youtube_videos(query)
+    for vid in video_hits:
+        # Video metadata is great for visual events
+        evidence_list.append(
+            (0.7, f"VIDEO [{vid['source']}]: {vid['title']} - {vid['description']} URL: {vid['link']}"))
+
+    # --- 4. MANUAL UPLOAD ---
+    if uploaded_text and len(str(uploaded_text).strip()) > 20:
+        evidence_list.append((1.0, f"USER_UPLOAD: {str(uploaded_text)}"))
+
+    # --- 5. EXECUTE LOGIC ENGINE ---
+    try:
+        # If evidence_list is empty, the Hallucination Guard in logic.py
+        # will automatically trigger 'NOT ENOUGH INFO'
+        result = checker.generate_verdict(query, evidence_list)
+        return {"status": "success", "verdict": result}
+
+    except Exception as e:
         return {
             "status": "error",
-            "source": None,
-            "claim": query,
-            "raw_evidence": [],
-            "verdict": {"verdict": "ERROR", "explanation": "Empty query."}
+            "message": f"Pipeline Bridge Error: {str(e)}"
         }
-
-    # 2️⃣ Retrieval Step
-    print(f"🔎 Running Hybrid Search for: {clean_query_str}...")
-    local_results = search_hybrid(clean_query_str, top_k=3)
-
-    final_evidence = []
-    source_label = None
-
-    if local_results:
-        final_evidence = local_results
-        source_label = "local_hybrid"
-    elif is_nagaland_related(query):
-        print(f"🌐 Triggering Live Wikipedia search...")
-        live_evidence = nagaland_live_search(clean_query_str)
-        if live_evidence:
-            # Format for the reasoning engine (text, score)
-            final_evidence = [(live_evidence, 1.0)]
-            source_label = "live_wikipedia"
-
-    # 3️⃣ Reasoning Step
-    if final_evidence:
-        verdict_data = checker.generate_verdict(
-            query, final_evidence, api_key=API_KEY)
-
-        return {
-            "status": "success",
-            "source": source_label,
-            "claim": query,
-            "raw_evidence": final_evidence,  # 👈 FIXED: Matches your app.py KeyError
-            "verdict": verdict_data
-        }
-
-    # 4️⃣ Failure State
-    return {
-        "status": "not_found",
-        "source": None,
-        "claim": query,
-        "raw_evidence": [],
-        "verdict": {"verdict": "NOT ENOUGH EVIDENCE", "explanation": "No sources found."}
-    }
