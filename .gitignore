@@ -8,5 +8,5 @@ data/
 index/
 check_models.py
 
-# Ignore local environment variables if you use them later
+# Ignore local environment variables
 .env
