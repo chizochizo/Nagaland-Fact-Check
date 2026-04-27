@@ -18,6 +18,7 @@ def sanitize_latin(text):
     """Ensures text is compatible with FPDF Latin-1 encoding."""
     if not text:
         return ""
+    # Standardizes characters for the PDF engine
     return str(text).replace('–', '-').replace('—', '-').replace('’', "'").replace('‘', "'").encode('latin-1', 'ignore').decode('latin-1')
 
 
@@ -47,7 +48,9 @@ def generate_pdf(claim, result_data):
     pdf.set_font("Helvetica", 'I', 8)
     pdf.cell(
         0, 10, txt=f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", align='R')
-    return pdf.output(dest='S').encode('latin-1')
+
+    # FIXED: Removed .encode() and updated to modern fpdf2 syntax
+    return bytes(pdf.output())
 
 
 # --- 3. CUSTOM CSS STYLING ---
@@ -78,7 +81,6 @@ st.caption(
 
 claim_input = st.text_input("Enter a claim to verify:",
                             placeholder="e.g., Nagaland has 17 districts as of 2026.")
-
 st.divider()
 
 # --- 5. MIDDLE SECTION: UPLOAD & ACTIONS ---
@@ -97,6 +99,7 @@ with col_right:
             with st.spinner("🔍 Analyzing Evidence & Checking Live Sources..."):
                 extracted_text = ""
                 if uploaded_file:
+                    # Logic for text files; if you need PDF extraction, use a library like pypdf
                     extracted_text = uploaded_file.read().decode("utf-8", errors="ignore")
 
                 # Run Pipeline
@@ -107,7 +110,6 @@ with col_right:
                     v_data = result["verdict"]
                     st.session_state.last_result = {
                         "claim": claim_input, "v_data": v_data}
-
                     if "history" not in st.session_state:
                         st.session_state.history = []
                     st.session_state.history.append(
@@ -145,7 +147,6 @@ if "last_result" in st.session_state:
 
     # --- 🎥 LIVE VIDEO PLAYER ---
     evidence_text = v_data.get('evidence_summary', '')
-    # Use Regex to find the first YouTube URL in the evidence
     yt_links = re.findall(
         r'(https?://(?:www\.)?youtube\.com/watch\?v=[\w-]+|https?://youtu\.be/[\w-]+)', evidence_text)
 
@@ -189,5 +190,3 @@ with st.sidebar:
                 st.error(f"**{item['claim']}**\n\nVerdict: {h_v}")
             else:
                 st.warning(f"**{item['claim']}**\n\nVerdict: {h_v}")
-
-st.divider()
