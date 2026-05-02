@@ -11,7 +11,6 @@ load_dotenv()
 
 class FactChecker:
     def __init__(self):
-        # Initialize Groq as the backup engine
         self.groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
         print("🧠 Logic Engine Initialized: Aggressive 7-Pillar V3 + NEI.")
 
@@ -23,13 +22,12 @@ class FactChecker:
         if not API_KEY:
             return {"verdict": "ERROR", "reasoning": "Missing API Key", "confidence": 0}
 
-        # Dynamic Date Handling
         now = datetime.date.today()
         current_month_name = now.strftime("%B")
         current_year_str = str(now.year)
         full_date_str = now.strftime("%B %d, %Y")
 
-        # --- 2. CONTEXT PREPARATION ---
+        # --- 2. CONTEXT ---
         context_parts = []
         for item in evidence_list:
             context_parts.append(f"[Evidence Source] {str(item)}")
@@ -37,11 +35,10 @@ class FactChecker:
         raw_context = "\n\n".join(
             context_parts) if context_parts else "NO EVIDENCE PROVIDED."
 
-        # Truncate context
         if len(raw_context) > 12000:
             raw_context = raw_context[:12000] + "\n\n[CONTEXT TRUNCATED...]"
 
-        # --- 3. PROMPT (UNCHANGED AS REQUESTED) ---
+        # --- 3. PROMPT (UNCHANGED) ---
         prompt = f"""
         ACT AS A SENIOR RESEARCHER AT NAGALAND UNIVERSITY.
         PURPOSE: ELIMINATE AMBIGUITY. PROVIDE A DEFINITIVE VERDICT BASED ON 7-PILLAR VALIDATION.
@@ -106,12 +103,31 @@ class FactChecker:
             except:
                 return {"verdict": "ERROR", "reasoning": "Engines Offline.", "confidence": 0}
 
-        # --- 5. PARSING ---
+        # --- 5. SAFE PARSING ---
         try:
             clean_ai_response = re.sub(
                 r"[\x00-\x1F\x7F]", " ", raw_ai_response)
+
             json_match = re.search(r'(\{.*\})', clean_ai_response, re.DOTALL)
-            data = json.loads(json_match.group(1).strip())
+
+            # 🔥 FIX 1: Handle missing JSON
+            if not json_match:
+                return {
+                    "verdict": "NOT ENOUGH INFO",
+                    "confidence": 0,
+                    "reasoning": "NEI: The claim is too vague or lacks sufficient verifiable evidence.Missing details like location, time, source, or specific event context.",
+                    "evidence_summary": ""
+                }
+
+            try:
+                data = json.loads(json_match.group(1).strip())
+            except:
+                return {
+                    "verdict": "NOT ENOUGH INFO",
+                    "confidence": 0,
+                    "reasoning": "NEI: JSON parsing failed.",
+                    "evidence_summary": "Invalid JSON from model."
+                }
 
             v = str(data.get("verdict", "")).upper()
             reason = str(data.get("reasoning", "")).lower()
@@ -121,74 +137,63 @@ class FactChecker:
             # 🔥 HARD LOGIC OVERRIDES
             # =========================
 
-            # --- A. WEAKEST LINK RULE ---
-            refute_triggers = [
-                "partially", "half", "incorrect", "mismatch",
-                "unverified", "no mention", "missing info", "not mentioned"
-            ]
-            if v == "SUPPORTED" and any(t in reason or t in summary for t in refute_triggers):
+            # --- A. WEAKEST LINK ---
+            triggers = ["partially", "half",
+                        "incorrect", "mismatch", "unverified"]
+            if v == "SUPPORTED" and any(t in reason or t in summary for t in triggers):
                 data["verdict"] = "REFUTED"
                 data["confidence"] = 40
-                data["reasoning"] = "Aggressive Override: Partial or unverified claim → REFUTED."
+                data["reasoning"] = "Aggressive Override: Partial or weak claim → REFUTED."
 
-            # --- B. TEMPORAL FIREWALL ---
+            # --- B. TEMPORAL LOGIC (FIXED) ---
             months = [
                 "january", "february", "march", "april", "may", "june",
                 "july", "august", "september", "october", "november", "december"
             ]
             curr_m = current_month_name.lower()
 
-            if v == "SUPPORTED":
-                past_month = any(m in summary and m != curr_m for m in months)
+            years_range = [str(y) for y in range(1947, int(current_year_str))]
 
-                # 🔥 FULL RANGE: 1947 → last year
-                years_range = [str(y)
-                               for y in range(1947, int(current_year_str))]
-                past_year = any(y in summary for y in years_range)
+            past_month = any(m in summary and m != curr_m for m in months)
+            past_year = any(y in summary for y in years_range)
 
-                if past_month or past_year:
-                    data["verdict"] = "RECYCLED"
-                    data["confidence"] = 95
-                    data["reasoning"] = "Temporal Override: Old event reused → RECYCLED."
+            # 🔥 KEY FIX: OLD evidence → RECYCLED
+            if (past_month or past_year) and v == "SUPPORTED":
+                data["verdict"] = "RECYCLED"
+                data["confidence"] = 75
+                data["reasoning"] = "RECYCLED: Claim is based on old evidence,not current events."
 
-            # --- C. NOT ENOUGH INFO (NEI) ---
-            weak_evidence = [
-                "no clear evidence",
-                "cannot verify",
-                "not enough information",
-                "unclear",
-                "no data"
-            ]
-
-            # Condition 1: No evidence at all
+            # --- C. NO EVIDENCE ---
             if "NO EVIDENCE PROVIDED" in raw_context or len(evidence_list) == 0:
                 data["verdict"] = "NOT ENOUGH INFO"
                 data["confidence"] = 0
                 data["reasoning"] = "NEI: No evidence available."
 
-            # Condition 2: Weak / vague reasoning
-            elif any(w in reason or w in summary for w in weak_evidence):
+            # --- D. WEAK EVIDENCE ---
+            weak_terms = ["no evidence", "cannot verify", "unclear"]
+            if any(w in reason or w in summary for w in weak_terms):
                 data["verdict"] = "NOT ENOUGH INFO"
                 data["confidence"] = 30
-                data["reasoning"] = "NEI: Evidence is weak or inconclusive."
 
-            # Condition 3: Too little evidence
-            elif len(evidence_list) <= 2 and v != "REFUTED":
+            # --- 🔥 CRITICAL FIX: EMPTY / USELESS RESPONSE → NEI ---
+            if not reason or reason.strip() in ["none", "n/a", ""]:
                 data["verdict"] = "NOT ENOUGH INFO"
-                data["confidence"] = 35
-                data["reasoning"] = "NEI: Insufficient supporting evidence."
+                data["confidence"] = 0
+                data["reasoning"] = "The claim is too vague or lacks sufficient verifiable evidence.Missing details like location, time, source, or specific event context."
 
-            # --- D. FINAL NORMALIZATION ---
+            # --- E. FINAL NORMALIZATION ---
             final_v = str(data.get("verdict", "")).upper()
 
             if "RECYCLED" in final_v:
                 data["verdict"] = "RECYCLED"
             elif "SUPPORT" in final_v:
                 data["verdict"] = "SUPPORTED"
+            elif "REFUT" in final_v:
+                data["verdict"] = "REFUTED"
             elif "NOT" in final_v:
                 data["verdict"] = "NOT ENOUGH INFO"
             else:
-                data["verdict"] = "REFUTED"
+                data["verdict"] = "NOT ENOUGH INFO"
 
             return data
 
